@@ -1,35 +1,53 @@
-import '../models/user.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class AuthService {
-  static final List<User> _users = [];
+  // Pull the URL from your .env file
+  final String baseUrl = dotenv.env['BASE_URL'] ?? 'http://localhost:3000/api';
 
+  /// REGISTER USER
   Future<bool> signUp(String email, String password) async {
-    await Future.delayed(const Duration(seconds: 1));
-
-    final exists = _users.any((u) => u.email == email);
-    if (exists) return false;
-
-    _users.add(User(
-      email: email.trim(),
-      password: password.trim(),
-    ));
-    return true;
-  }
-
-  Future<User?> signIn(String email, String password) async {
-    await Future.delayed(const Duration(seconds: 1));
-
     try {
-      return _users.firstWhere(
-            (u) =>
-        u.email == email.trim() &&
-            u.password == password.trim(),
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/register'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email.trim(),
+          'password': password.trim(),
+        }),
       );
-    } catch (_) {
-      return null;
+
+      // Return true if the backend returns 201 (Created) or 200 (OK)
+      return response.statusCode == 201 || response.statusCode == 200;
+    } catch (e) {
+      print("Sign Up Error: $e");
+      return false;
     }
   }
 
-  /// Optional (debug)
-  static int get userCount => _users.length;
+  /// LOGIN USER
+  Future<bool> login(String email, String password) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/login'), // Ensure this matches your backend route
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'email': email.trim(),
+          'password': password.trim(),
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        // Here you would typically save the JWT token using flutter_secure_storage
+        // final data = jsonDecode(response.body);
+        // String token = data['token'];
+        return true;
+      }
+      return false;
+    } catch (e) {
+      print("Login Error: $e");
+      return false;
+    }
+  }
 }

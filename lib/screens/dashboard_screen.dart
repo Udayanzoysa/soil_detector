@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import '../utils/toast_util.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -14,12 +17,16 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   File? image;
+  bool _isAnalyzing = false;
   bool analyzed = false;
+
+  // Data received from AI Backend
+  Map<String, dynamic>? _analysisResult;
 
   late Timer _timer;
   DateTime now = DateTime.now();
 
-  // Dummy user
+  final String baseUrl = dotenv.env['BASE_URL'] ?? 'http://10.0.2.2:3000/api';
   final String userName = "Udaya Perera";
   final String userEmail = "udaya@gmail.com";
 
@@ -46,7 +53,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(() {
         image = File(picked.path);
         analyzed = false;
+        _analysisResult = null;
       });
+    }
+  }
+
+  /// API Call to AI Backend
+  Future<void> _analyzeSoil() async {
+    if (image == null) return;
+
+    setState(() => _isAnalyzing = true);
+
+    try {
+      final bytes = await image!.readAsBytes();
+      final String base64Image = base64Encode(bytes);
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/soil/analyze'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({"imageBase64": base64Image}),
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          _analysisResult = jsonDecode(response.body);
+          analyzed = true;
+        });
+        ToastUtil.success("AI Analysis Complete");
+      } else {
+        ToastUtil.error("Server Error: ${response.statusCode}");
+      }
+    } catch (e) {
+      ToastUtil.error("Failed to connect to AI server");
+    } finally {
+      setState(() => _isAnalyzing = false);
     }
   }
 
@@ -61,31 +101,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const CircleAvatar(
-              radius: 32,
-              child: Icon(Icons.person, size: 40),
-            ),
+            const CircleAvatar(radius: 32, child: Icon(Icons.person, size: 40)),
             const SizedBox(height: 12),
-            Text(
-              userName,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+            Text(userName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             Text(userEmail),
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                ),
-                onPressed: () {
-                  Navigator.pop(context);
-                  // TODO: Navigate to login screen
-                },
-                child: const Text("Sign Out"),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Sign Out", style: TextStyle(color: Colors.white)),
               ),
             ),
           ],
@@ -96,150 +122,173 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            /// Welcome Card
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
+    return Scaffold(
+      backgroundColor: const Color(0xFFF4F6FA),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              /// Welcome Header
+              _buildHeader(),
+
+              const SizedBox(height: 20),
+
+              /// Summary Cards
+              _infoCard(icon: Icons.wb_sunny, title: "Weather", value: "28°C • Sunny"),
+              const SizedBox(height: 12),
+              _infoCard(
+                icon: Icons.check_circle,
+                title: "System Status",
+                value: _isAnalyzing ? "ANALYZING..." : (analyzed ? "COMPLETE" : "READY"),
+                color: analyzed ? Colors.green : Colors.blue,
               ),
-              child: Row(
-                children: [
-                  const CircleAvatar(
-                    radius: 24,
-                    child: Icon(Icons.person, size: 28),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Welcome back 👋",
-                        style: TextStyle(
-                          color: Colors.grey.shade600,
-                        ),
-                      ),
-                      Text(
-                        userName,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        "${DateFormat('dd MMM yyyy').format(now)} • ${DateFormat('hh:mm a').format(now)}",
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade500,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  IconButton(
-                    icon: const Icon(Icons.more_vert),
-                    onPressed: showProfileSheet,
-                  ),
-                ],
-              ),
-            ),
 
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
 
-            /// Weather Card
-            _infoCard(
-              icon: Icons.wb_sunny,
-              title: "Weather",
-              value: "28°C • Sunny",
-            ),
+              /// Camera Section
+              _buildCameraSection(),
 
-            const SizedBox(height: 12),
+              const SizedBox(height: 16),
 
-            /// Soil Condition Card
-            _infoCard(
-              icon: Icons.check_circle,
-              title: "Soil Condition",
-              value: "SOLID",
-              color: Colors.green,
-            ),
-
-            const SizedBox(height: 20),
-
-            /// Image Capture
-            GestureDetector(
-              onTap: pickImage,
-              child: Container(
-                height: 170,
+              /// AI Action Button
+              SizedBox(
                 width: double.infinity,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: image == null
-                    ? const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.camera_alt, size: 36),
-                    SizedBox(height: 8),
-                    Text("Tap to capture soil image"),
-                  ],
-                )
-                    : ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.file(image!, fit: BoxFit.cover),
+                height: 50,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0D47A1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: image == null || _isAnalyzing ? null : _analyzeSoil,
+                  child: _isAnalyzing
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Text("Analyze Soil with AI", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
               ),
-            ),
 
-            const SizedBox(height: 16),
+              const SizedBox(height: 24),
 
-            /// Analyze Button (FULL WIDTH)
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton(
-                onPressed: image == null
-                    ? null
-                    : () => setState(() => analyzed = true),
-                child: const Text("Analyze Soil"),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            /// Soil Tips (before analysis)
-            if (!analyzed)
-              _tipsCard(),
-
-            /// Analysis Result (after analysis)
-            if (analyzed)
-              _resultCard(),
-          ],
+              /// Results or Tips
+              analyzed ? _resultCard() : _tipsCard(),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _infoCard({
-    required IconData icon,
-    required String title,
-    required String value,
-    Color color = const Color(0xFF0D47A1),
-  }) {
+  Widget _buildHeader() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: Row(
+        children: [
+          const CircleAvatar(radius: 24, child: Icon(Icons.person)),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text("Welcome back 👋", style: TextStyle(color: Colors.grey.shade600)),
+              Text(userName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Text("${DateFormat('dd MMM').format(now)} • ${DateFormat('hh:mm a').format(now)}",
+                  style: TextStyle(fontSize: 11, color: Colors.grey.shade500)),
+            ],
+          ),
+          const Spacer(),
+          IconButton(icon: const Icon(Icons.more_vert), onPressed: showProfileSheet),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCameraSection() {
+    return GestureDetector(
+      onTap: pickImage,
+      child: Container(
+        height: 180,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: image == null
+            ? const Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.camera_alt, size: 40, color: Color(0xFF0D47A1)),
+            SizedBox(height: 8),
+            Text("Tap to capture soil for AI analysis"),
+          ],
+        )
+            : ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: Image.file(image!, fit: BoxFit.cover),
+        ),
+      ),
+    );
+  }
+
+  Widget _resultCard() {
+    if (_analysisResult == null) return const SizedBox();
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("AI Analysis Result", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+          const Divider(height: 24),
+          // Use .toString() to prevent the double-to-string error
+          _Row("Soil Type", _analysisResult!['soilName']?.toString() ?? "N/A"),
+          _Row("Texture", _analysisResult!['texture']?.toString() ?? "N/A"),
+          _Row("pH Level", _analysisResult!['ph']?.toString() ?? "N/A"),
+          _Row("Drainage", _analysisResult!['drainage']?.toString() ?? "N/A"),
+          const SizedBox(height: 15),
+          const Text("AI Recommendation:", style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 5),
+          Text(
+              _analysisResult!['recommendation']?.toString() ?? "Match crops to these conditions for best yield.",
+              style: const TextStyle(fontSize: 13, color: Colors.grey)
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Inside your DashboardScreen state
+  Widget _tipsCard() {
+    final soilType = _analysisResult?['soilName']?.toString().toLowerCase() ?? "";
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        children: [
+          const Text("🌱 Smart Soil Tips", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          if (soilType.contains("black")) ...[
+            _tipRow(Icons.water_drop, "Watering", "Black soil holds water well; avoid over-watering."),
+            _tipRow(Icons.agriculture, "Crop", "Perfect for cotton or sunflower."),
+          ] else if (soilType.contains("sandy")) ...[
+            _tipRow(Icons.opacity, "Watering", "Sandy soil drains fast; water more frequently."),
+            _tipRow(Icons.eco, "Nutrients", "Add organic compost to help hold nutrients."),
+          ] else ...[
+            _tipRow(Icons.science, "pH Check", "Always monitor pH levels for optimal growth."),
+            _tipRow(Icons.eco, "Mulching", "Use mulch to maintain soil temperature."),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _infoCard({required IconData icon, required String title, required String value, Color color = const Color(0xFF0D47A1)}) {
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: Row(
         children: [
           Icon(icon, color: color, size: 28),
@@ -247,11 +296,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                title,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text(value),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              Text(value, style: const TextStyle(fontSize: 15)),
             ],
           ),
         ],
@@ -259,90 +305,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _tipsCard() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            "🌱 Soil Tips",
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          _tipRow(Icons.opacity, "Maintain moisture", "Avoid over watering"),
-          _tipRow(Icons.science, "Check soil pH", "Correct pH improves yield"),
-          _tipRow(Icons.eco, "Use organic fertilizer",
-              "Improves soil fertility"),
-          _tipRow(Icons.agriculture, "Crop selection",
-              "Match crops with soil type"),
-        ],
-      ),
-    );
-  }
-
-  Widget _resultCard() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            "Soil Analysis Result",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          SizedBox(height: 10),
-          _Row("Soil Name", "Black Soil"),
-          _Row("Texture", "Clay"),
-          _Row("pH Level", "Alkaline (8–14)"),
-          _Row("Drainage", "Low"),
-        ],
-      ),
-    );
-  }
-
   Widget _tipRow(IconData icon, String title, String subtitle) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 15),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: const Color(0xFFE3F2FD),
-            child: Icon(
-              icon,
-              color: const Color(0xFF0D47A1),
-              size: 18,
-            ),
-          ),
+          CircleAvatar(radius: 18, backgroundColor: const Color(0xFFE3F2FD), child: Icon(icon, color: const Color(0xFF0D47A1), size: 18)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                Text(
-                  subtitle,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
-                ),
+                Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
               ],
             ),
           ),
@@ -355,21 +330,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class _Row extends StatelessWidget {
   final String left;
   final String right;
-
   const _Row(this.left, this.right);
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(left),
-          Text(
-            right,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
+          Text(left, style: const TextStyle(color: Colors.grey)),
+          Text(right, style: const TextStyle(fontWeight: FontWeight.bold)),
         ],
       ),
     );

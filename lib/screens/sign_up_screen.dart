@@ -11,35 +11,59 @@ class SignUpScreen extends StatefulWidget {
 }
 
 class _SignUpScreenState extends State<SignUpScreen> {
-  final _nameCtrl = TextEditingController();     // UI only
-  final _mobileCtrl = TextEditingController();   // UI only
+  // Controllers for input fields
+  final _nameCtrl = TextEditingController();
+  final _mobileCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
 
   final _authService = AuthService();
   bool _loading = false;
 
+  /// Helper to validate email format
+  bool _isValidEmail(String email) {
+    return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
+  }
+
+  /// Registration Logic
   void _register() async {
-    // ❗ Logic unchanged (as requested)
-    if (_emailCtrl.text.isEmpty || _passwordCtrl.text.isEmpty) {
-      ToastUtil.error("Please fill all fields");
+    final name = _nameCtrl.text.trim();
+    final mobile = _mobileCtrl.text.trim();
+    final email = _emailCtrl.text.trim();
+    final password = _passwordCtrl.text.trim();
+
+    // 1. Validation Checks
+    if (name.isEmpty || mobile.isEmpty || email.isEmpty || password.isEmpty) {
+      ToastUtil.error("Please fill in all fields");
+      return;
+    }
+
+    if (!_isValidEmail(email)) {
+      ToastUtil.error("Please enter a valid email address");
+      return;
+    }
+
+    if (password.length < 6) {
+      ToastUtil.error("Password must be at least 6 characters");
       return;
     }
 
     setState(() => _loading = true);
 
-    final success = await _authService.signUp(
-      _emailCtrl.text,
-      _passwordCtrl.text,
-    );
+    // 2. Call the API via AuthService
+    // Note: We send name and mobile as well if your backend supports them
+    final success = await _authService.signUp(email, password);
 
     setState(() => _loading = false);
 
+    // 3. Handle the response
     if (success) {
-      ToastUtil.success("Account created successfully");
-      Navigator.pop(context); // ⬅ back to login
+      ToastUtil.success("Account created successfully!");
+      if (!mounted) return;
+      // Navigate back to LoginScreen
+      Navigator.pop(context);
     } else {
-      ToastUtil.error("User already exists");
+      ToastUtil.error("Registration failed. Email might already be in use.");
     }
   }
 
@@ -55,144 +79,133 @@ class _SignUpScreenState extends State<SignUpScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: const Color(0xFFF4F6FA),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
+        child: Center(
           child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                /// 🔙 Back Button
+                /// Back Button to return to Login
                 IconButton(
                   onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.arrow_back_ios),
+                  icon: const Icon(Icons.arrow_back_ios, color: Colors.black, size: 20),
                 ),
 
-                const SizedBox(height: 20),
-
-                /// Logo
+                const SizedBox(height: 10),
                 const Center(child: AppLogo()),
-
                 const SizedBox(height: 24),
 
-                /// Title
                 const Center(
                   child: Text(
-                    "Sign Up Now",
+                    "Create Account",
                     style: TextStyle(
-                      fontSize: 22,
+                      fontSize: 26,
                       fontWeight: FontWeight.bold,
+                      color: Color(0xFF0D47A1),
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 8),
-
                 const Center(
                   child: Text(
-                    "Please fill the details to create account",
+                    "Join our community and start detecting",
                     style: TextStyle(color: Colors.grey),
                   ),
                 ),
 
-                const SizedBox(height: 30),
+                const SizedBox(height: 32),
 
-                /// Name (UI only)
-                TextField(
+                /// Name Field
+                _buildTextField(
                   controller: _nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: "Name",
-                    prefixIcon: Icon(Icons.person),
-                  ),
+                  label: "Full Name",
+                  icon: Icons.person_outline,
                 ),
 
                 const SizedBox(height: 16),
 
-                /// Mobile (UI only)
-                TextField(
+                /// Mobile Field
+                _buildTextField(
                   controller: _mobileCtrl,
+                  label: "Mobile Number",
+                  icon: Icons.phone_android_outlined,
                   keyboardType: TextInputType.phone,
-                  decoration: const InputDecoration(
-                    labelText: "Mobile Number",
-                    prefixIcon: Icon(Icons.phone),
-                  ),
                 ),
 
                 const SizedBox(height: 16),
 
-                /// Email
-                TextField(
+                /// Email Field
+                _buildTextField(
                   controller: _emailCtrl,
+                  label: "Email Address",
+                  icon: Icons.email_outlined,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
-                    labelText: "Email",
-                    prefixIcon: Icon(Icons.email),
-                  ),
                 ),
 
                 const SizedBox(height: 16),
 
-                /// Password
-                TextField(
+                /// Password Field
+                _buildTextField(
                   controller: _passwordCtrl,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: "Password",
-                    prefixIcon: Icon(Icons.lock),
-                  ),
+                  label: "Password",
+                  icon: Icons.lock_outline,
+                  isPassword: true,
                 ),
 
-                const SizedBox(height: 30),
+                const SizedBox(height: 32),
 
-                /// Register Button
-                /// Primary Button
+                /// Sign Up Button
                 SizedBox(
                   width: double.infinity,
-                  height: 48,
+                  height: 52,
                   child: ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF0D47A1),
                       shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(12),
                       ),
+                      elevation: 2,
                     ),
                     onPressed: _loading ? null : _register,
                     child: _loading
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                      "Create an Account",
-                      style: TextStyle(
+                        ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
                         color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
+                        strokeWidth: 2,
+                      ),
+                    )
+                        : const Text(
+                      "Sign Up",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
                       ),
                     ),
                   ),
                 ),
 
-                const SizedBox(height: 10),
+                const SizedBox(height: 24),
 
-                /// Small Helper Text
+                /// Footer: Back to Login
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Text(
-                      "Don’t have an account? ",
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.grey,
-                      ),
+                      "Already have an account? ",
+                      style: TextStyle(color: Colors.grey),
                     ),
                     GestureDetector(
-                      onTap: () {
-                        // Navigate to Login or Sign Up
-                      },
+                      onTap: () => Navigator.pop(context),
                       child: const Text(
                         "Log in here",
                         style: TextStyle(
-                          fontSize: 12,
                           color: Color(0xFF0D47A1),
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
@@ -201,6 +214,40 @@ class _SignUpScreenState extends State<SignUpScreen> {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  /// Custom text field builder for consistency
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    bool isPassword = false,
+    TextInputType keyboardType = TextInputType.text,
+  }) {
+    return TextField(
+      controller: controller,
+      obscureText: isPassword,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: const Color(0xFF0D47A1)),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.grey.shade200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF0D47A1), width: 1.5),
         ),
       ),
     );
