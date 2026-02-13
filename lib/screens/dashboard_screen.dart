@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../utils/toast_util.dart';
+import 'login_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -19,6 +20,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   File? image;
   bool _isAnalyzing = false;
   bool analyzed = false;
+  bool _isLoadingUser = true;
 
   // Data received from AI Backend
   Map<String, dynamic>? _analysisResult;
@@ -27,12 +29,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   DateTime now = DateTime.now();
 
   final String baseUrl = dotenv.env['BASE_URL'] ?? 'http://10.0.2.2:3000/api';
-  final String userName = "Udaya Perera";
-  final String userEmail = "udaya@gmail.com";
+
+  // Dynamic user data
+  String userName = "Loading...";
+  String userEmail = "...";
 
   @override
   void initState() {
     super.initState();
+    _fetchUserData();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       setState(() => now = DateTime.now());
     });
@@ -44,24 +49,79 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
-  Future<void> pickImage() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.camera,
-      imageQuality: 70,
-    );
-    if (picked != null) {
-      setState(() {
-        image = File(picked.path);
-        analyzed = false;
-        _analysisResult = null;
-      });
+  /// Fetch User Details from API
+  Future<void> _fetchUserData() async {
+    try {
+      final response = await http.get(Uri.parse('$baseUrl/users?id=1'));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          userName = data['name'] ?? "User";
+          userEmail = data['email'] ?? "";
+          _isLoadingUser = false;
+        });
+      } else {
+        setState(() => _isLoadingUser = false);
+        ToastUtil.error("Failed to load user profile");
+      }
+    } catch (e) {
+      setState(() => _isLoadingUser = false);
+      print("User Fetch Error: $e");
     }
   }
 
-  /// API Call to AI Backend
+  void _showImageSourceOptions() {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library, color: Color(0xFF0D47A1)),
+              title: const Text('Upload from Gallery'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.camera_alt, color: Color(0xFF0D47A1)),
+              title: const Text('Capture with Camera'),
+              onTap: () {
+                Navigator.pop(context);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final picked = await ImagePicker().pickImage(
+        source: source,
+        imageQuality: 70,
+      );
+      if (picked != null) {
+        setState(() {
+          image = File(picked.path);
+          analyzed = false;
+          _analysisResult = null;
+        });
+      }
+    } catch (e) {
+      ToastUtil.error("Error picking image");
+    }
+  }
+
   Future<void> _analyzeSoil() async {
     if (image == null) return;
-
     setState(() => _isAnalyzing = true);
 
     try {
@@ -90,6 +150,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  // --- LOGIC FOR RECOMMENDATIONS ---
+  List<String> _getPlantsForSoil(String? soilType) {
+    if (soilType == null) return [];
+    String st = soilType.toLowerCase();
+
+    if (st.contains("black")) return ["Cotton", "Sugarcane", "Sunflower", "Millets", "Wheat"];
+    if (st.contains("red")) return ["Groundnut", "Potato", "Rice", "Ragi", "Tobacco"];
+    if (st.contains("clay")) return ["Rice", "Lettuce", "Broccoli", "Cabbage", "Soybean"];
+    if (st.contains("sandy")) return ["Watermelon", "Coconut", "Corn", "Peanuts", "Cactus"];
+    if (st.contains("loam")) return ["Tomato", "Peppers", "Carrots", "Spinach", "Onions"];
+    if (st.contains("silt")) return ["Strawberries", "Tomatoes", "Corn", "Wheat"];
+
+    return ["Wheat", "Rice", "Corn", "Beans"]; // Default fallback
+  }
+
   void showProfileSheet() {
     showModalBottomSheet(
       context: context,
@@ -110,7 +185,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
               width: double.infinity,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                onPressed: () => Navigator.pop(context),
+                onPressed: () {
+                  Navigator.pushAndRemoveUntil(
+                    context,
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                        (route) => false,
+                  );
+                },
                 child: const Text("Sign Out", style: TextStyle(color: Colors.white)),
               ),
             ),
@@ -125,34 +206,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF4F6FA),
       body: SafeArea(
-        child: SingleChildScrollView(
+        child: _isLoadingUser
+            ? const Center(child: CircularProgressIndicator())
+            : SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              /// Welcome Header
               _buildHeader(),
-
               const SizedBox(height: 20),
-
-              /// Summary Cards
-              _infoCard(icon: Icons.wb_sunny, title: "Weather", value: "28°C • Sunny"),
-              const SizedBox(height: 12),
-              _infoCard(
-                icon: Icons.check_circle,
-                title: "System Status",
-                value: _isAnalyzing ? "ANALYZING..." : (analyzed ? "COMPLETE" : "READY"),
-                color: analyzed ? Colors.green : Colors.blue,
-              ),
-
+              // Conditional rendering: Show Result if analyzed, else show info cards
+              if (!analyzed) ...[
+                _infoCard(icon: Icons.wb_sunny, title: "Weather", value: "28°C • Sunny"),
+                const SizedBox(height: 12),
+                _infoCard(
+                  icon: Icons.check_circle,
+                  title: "System Status",
+                  value: _isAnalyzing ? "ANALYZING..." : "READY",
+                  color: Colors.blue,
+                ),
+              ],
               const SizedBox(height: 20),
-
-              /// Camera Section
               _buildCameraSection(),
-
               const SizedBox(height: 16),
-
-              /// AI Action Button
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -167,10 +243,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       : const Text("Analyze Soil with AI", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                 ),
               ),
-
               const SizedBox(height: 24),
-
-              /// Results or Tips
+              // Show result only if analyzed
               analyzed ? _resultCard() : _tipsCard(),
             ],
           ),
@@ -206,7 +280,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildCameraSection() {
     return GestureDetector(
-      onTap: pickImage,
+      onTap: _showImageSourceOptions,
       child: Container(
         height: 180,
         width: double.infinity,
@@ -219,9 +293,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ? const Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.camera_alt, size: 40, color: Color(0xFF0D47A1)),
+            Icon(Icons.add_a_photo, size: 40, color: Color(0xFF0D47A1)),
             SizedBox(height: 8),
-            Text("Tap to capture soil for AI analysis"),
+            Text("Tap to capture or upload soil image"),
           ],
         )
             : ClipRRect(
@@ -234,52 +308,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _resultCard() {
     if (_analysisResult == null) return const SizedBox();
+
+    String soilName = _analysisResult!['soilName']?.toString() ?? "Unknown";
+    // Get recommendations
+    List<String> crops = _getPlantsForSoil(soilName);
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text("AI Analysis Result", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text("Analysis Result", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(8)),
+                child: const Text("Success", style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)),
+              )
+            ],
+          ),
           const Divider(height: 24),
-          // Use .toString() to prevent the double-to-string error
-          _Row("Soil Type", _analysisResult!['soilName']?.toString() ?? "N/A"),
+          _Row("Soil Type", soilName),
           _Row("Texture", _analysisResult!['texture']?.toString() ?? "N/A"),
           _Row("pH Level", _analysisResult!['ph']?.toString() ?? "N/A"),
           _Row("Drainage", _analysisResult!['drainage']?.toString() ?? "N/A"),
-          const SizedBox(height: 15),
-          const Text("AI Recommendation:", style: TextStyle(fontWeight: FontWeight.bold)),
-          const SizedBox(height: 5),
-          Text(
-              _analysisResult!['recommendation']?.toString() ?? "Match crops to these conditions for best yield.",
-              style: const TextStyle(fontSize: 13, color: Colors.grey)
+          const SizedBox(height: 20),
+
+          // --- NEW: Recommended Crops Section ---
+          const Text("🌾 Recommended Crops:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10.0,
+            runSpacing: 10.0,
+            children: crops.map((crop) => Chip(
+              elevation: 2,
+              backgroundColor: Colors.white,
+              shadowColor: Colors.grey.shade200,
+              avatar: CircleAvatar(
+                backgroundColor: const Color(0xFFE3F2FD),
+                child: Text(crop[0], style: const TextStyle(fontSize: 12, color: Color(0xFF0D47A1), fontWeight: FontWeight.bold)),
+              ),
+              label: Text(crop, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w500)),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            )).toList(),
           ),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(8)),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.lightbulb_outline, color: Colors.orange, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                      _analysisResult!['recommendation']?.toString() ?? "Keep soil moisture consistent for best results.",
+                      style: TextStyle(fontSize: 13, color: Colors.grey.shade700)
+                  ),
+                ),
+              ],
+            ),
+          )
         ],
       ),
     );
   }
 
-  // Inside your DashboardScreen state
   Widget _tipsCard() {
-    final soilType = _analysisResult?['soilName']?.toString().toLowerCase() ?? "";
-
+    // Default tips if not analyzed yet
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
       child: Column(
         children: [
-          const Text("🌱 Smart Soil Tips", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text("🌱 General Soil Tips", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 16),
-          if (soilType.contains("black")) ...[
-            _tipRow(Icons.water_drop, "Watering", "Black soil holds water well; avoid over-watering."),
-            _tipRow(Icons.agriculture, "Crop", "Perfect for cotton or sunflower."),
-          ] else if (soilType.contains("sandy")) ...[
-            _tipRow(Icons.opacity, "Watering", "Sandy soil drains fast; water more frequently."),
-            _tipRow(Icons.eco, "Nutrients", "Add organic compost to help hold nutrients."),
-          ] else ...[
-            _tipRow(Icons.science, "pH Check", "Always monitor pH levels for optimal growth."),
-            _tipRow(Icons.eco, "Mulching", "Use mulch to maintain soil temperature."),
-          ],
+          _tipRow(Icons.water_drop, "Watering", "Most crops prefer early morning watering."),
+          _tipRow(Icons.wb_sunny, "Sunlight", "Ensure at least 6 hours of direct sunlight."),
+          _tipRow(Icons.science, "Testing", "Test pH levels every season."),
         ],
       ),
     );
