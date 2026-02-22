@@ -119,7 +119,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ToastUtil.error("Error picking image");
     }
   }
-
   Future<void> _analyzeSoil() async {
     if (image == null) return;
     setState(() => _isAnalyzing = true);
@@ -131,23 +130,76 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final response = await http.post(
         Uri.parse('$baseUrl/soil/analyze'),
         headers: {"Content-Type": "application/json"},
-        body: jsonEncode({"imageBase64": base64Image}),
+        body: jsonEncode({
+          "imageBase64": base64Image,
+          "userId": "1", // Pass as string to match backend type
+        }),
       );
 
-      if (response.statusCode == 200) {
+      // Handle the 201 Created response from your new backend
+      if (response.statusCode == 200 || response.statusCode == 201) {
         setState(() {
           _analysisResult = jsonDecode(response.body);
           analyzed = true;
         });
-        ToastUtil.success("AI Analysis Complete");
+        ToastUtil.success("Soil Processed Successfully!");
       } else {
-        ToastUtil.error("Server Error: ${response.statusCode}");
+        print("Backend Error: ${response.body}");
+        ToastUtil.error("Analysis Failed: ${response.statusCode}");
       }
     } catch (e) {
-      ToastUtil.error("Failed to connect to AI server");
+      print("Connection Error: $e");
+      ToastUtil.error("Server connection lost");
     } finally {
       setState(() => _isAnalyzing = false);
     }
+  }
+
+  Widget _resultCard() {
+    if (_analysisResult == null) return const SizedBox();
+
+    String soilName = _analysisResult!['soilName']?.toString() ?? "Unknown";
+    List<String> crops = _getPlantsForSoil(soilName);
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)]
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text("Analysis Results", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
+          const Divider(height: 24),
+          _Row("Soil Type", soilName),
+          _Row("Texture", _analysisResult!['texture']?.toString() ?? "N/A"),
+          _Row("pH Level", _analysisResult!['soilPh']?.toString() ?? "N/A"),
+          _Row("Drainage", _analysisResult!['drainage']?.toString() ?? "N/A"),
+          const SizedBox(height: 20),
+          const Text("🌾 Recommended Crops:", style: TextStyle(fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: crops.map((crop) => Chip(
+              label: Text(crop, style: const TextStyle(fontSize: 12)),
+              backgroundColor: const Color(0xFFE3F2FD),
+            )).toList(),
+          ),
+          const SizedBox(height: 16),
+          // Specific Recommendation Box
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.green.shade50, borderRadius: BorderRadius.circular(8)),
+            child: Text(
+                _analysisResult!['recommendation']?.toString() ?? "Ready for planting.",
+                style: TextStyle(fontSize: 13, color: Colors.green.shade900)
+            ),
+          )
+        ],
+      ),
+    );
   }
 
   // --- LOGIC FOR RECOMMENDATIONS ---
@@ -302,78 +354,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
           borderRadius: BorderRadius.circular(16),
           child: Image.file(image!, fit: BoxFit.cover),
         ),
-      ),
-    );
-  }
-
-  Widget _resultCard() {
-    if (_analysisResult == null) return const SizedBox();
-
-    String soilName = _analysisResult!['soilName']?.toString() ?? "Unknown";
-    // Get recommendations
-    List<String> crops = _getPlantsForSoil(soilName);
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text("Analysis Result", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0D47A1))),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(color: Colors.green.shade100, borderRadius: BorderRadius.circular(8)),
-                child: const Text("Success", style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold)),
-              )
-            ],
-          ),
-          const Divider(height: 24),
-          _Row("Soil Type", soilName),
-          _Row("Texture", _analysisResult!['texture']?.toString() ?? "N/A"),
-          _Row("pH Level", _analysisResult!['ph']?.toString() ?? "N/A"),
-          _Row("Drainage", _analysisResult!['drainage']?.toString() ?? "N/A"),
-          const SizedBox(height: 20),
-
-          // --- NEW: Recommended Crops Section ---
-          const Text("🌾 Recommended Crops:", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 10.0,
-            runSpacing: 10.0,
-            children: crops.map((crop) => Chip(
-              elevation: 2,
-              backgroundColor: Colors.white,
-              shadowColor: Colors.grey.shade200,
-              avatar: CircleAvatar(
-                backgroundColor: const Color(0xFFE3F2FD),
-                child: Text(crop[0], style: const TextStyle(fontSize: 12, color: Color(0xFF0D47A1), fontWeight: FontWeight.bold)),
-              ),
-              label: Text(crop, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.w500)),
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            )).toList(),
-          ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: Colors.grey.shade50, borderRadius: BorderRadius.circular(8)),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Icon(Icons.lightbulb_outline, color: Colors.orange, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                      _analysisResult!['recommendation']?.toString() ?? "Keep soil moisture consistent for best results.",
-                      style: TextStyle(fontSize: 13, color: Colors.grey.shade700)
-                  ),
-                ),
-              ],
-            ),
-          )
-        ],
       ),
     );
   }
